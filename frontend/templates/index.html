@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Medical Report AI</title>
+  <meta name="description" content="Secure medical document analysis & summarisation platform" />
+  <meta property="og:title" content="Medical Report AI" />
+  <meta property="og:description" content="Secure medical document analysis & summarisation platform" />
   <link rel="stylesheet" href="/css/styles.css" />
 </head>
 <body>
@@ -86,6 +89,7 @@
     </div>
     <div class="header-spacer"></div>
     <div class="header-user">
+      <span id="api-engine-header-badge" style="font-size:11px;background:rgba(255,255,255,0.18);padding:4px 10px;border-radius:20px;border:1px solid rgba(255,255,255,0.25);margin-right:8px" title="Current Active Engine">⚡ Engine: Loading...</span>
       <div class="user-avatar" id="user-initials">U</div>
       <span id="user-email-display" style="font-size:12px;opacity:0.85"></span>
       <button class="btn-logout" onclick="doLogout()">Logout</button>
@@ -108,6 +112,9 @@
         <li><a href="#" data-page="summary" onclick="showPage('summary');return false;">
           <span class="nav-icon">📋</span> Medical Summary
         </a></li>
+        <li><a href="#" data-page="symptoms" onclick="showPage('symptoms');return false;">
+          <span class="nav-icon">🩺</span> Symptom Checker
+        </a></li>
         <li><a href="#" data-page="qa" onclick="showPage('qa');return false;">
           <span class="nav-icon">💬</span> Q&amp;A Assistant
         </a></li>
@@ -120,6 +127,40 @@
       <!-- ======== PAGE: DASHBOARD ======== -->
       <div id="page-dashboard" class="page active">
         <div class="page-title">🏠 Dashboard</div>
+
+        <!-- Patient Profile Summary Card -->
+        <div class="card" id="patient-profile-card" style="margin-bottom:16px;display:none">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <h2>👤 Extracted Patient Profile</h2>
+            <span id="extraction-engine-badge" class="badge-pill badge-primary" style="font-size:11px">Engine: Active</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:10px;font-size:13px">
+            <div style="background:var(--surface-2);padding:10px 14px;border-radius:var(--radius);border:1px solid var(--border)">
+              <div style="color:var(--text-muted);font-size:11px;font-weight:700;text-transform:uppercase">Full Name</div>
+              <div id="prof-name" style="font-weight:700;font-size:15px;color:var(--primary);margin-top:2px">—</div>
+            </div>
+            <div style="background:var(--surface-2);padding:10px 14px;border-radius:var(--radius);border:1px solid var(--border)">
+              <div style="color:var(--text-muted);font-size:11px;font-weight:700;text-transform:uppercase">Age</div>
+              <div id="prof-age" style="font-weight:700;font-size:15px;color:var(--primary);margin-top:2px">—</div>
+            </div>
+            <div style="background:var(--surface-2);padding:10px 14px;border-radius:var(--radius);border:1px solid var(--border)">
+              <div style="color:var(--text-muted);font-size:11px;font-weight:700;text-transform:uppercase">Gender / Sex</div>
+              <div id="prof-gender" style="font-weight:700;font-size:15px;color:var(--primary);margin-top:2px">—</div>
+            </div>
+            <div style="background:var(--surface-2);padding:10px 14px;border-radius:var(--radius);border:1px solid var(--border)">
+              <div style="color:var(--text-muted);font-size:11px;font-weight:700;text-transform:uppercase">Date of Birth</div>
+              <div id="prof-dob" style="font-weight:600;font-size:13px;color:var(--primary);margin-top:2px">—</div>
+            </div>
+            <div style="background:var(--surface-2);padding:10px 14px;border-radius:var(--radius);border:1px solid var(--border)">
+              <div style="color:var(--text-muted);font-size:11px;font-weight:700;text-transform:uppercase">ABHA Health ID</div>
+              <div id="prof-abha" style="font-weight:600;font-size:13px;color:var(--primary);margin-top:2px">91-1581-7065-6801</div>
+            </div>
+            <div style="background:var(--surface-2);padding:10px 14px;border-radius:var(--radius);border:1px solid var(--border)">
+              <div style="color:var(--text-muted);font-size:11px;font-weight:700;text-transform:uppercase">User API (k2 Scheme)</div>
+              <div id="prof-user-api" style="font-weight:600;font-size:13px;color:#16a34a;margin-top:2px">🟢 dc8843aa...f747 (Active)</div>
+            </div>
+          </div>
+        </div>
 
         <!-- Stats -->
         <div class="stats-grid">
@@ -150,6 +191,7 @@
           <h2>⚡ Quick Actions</h2>
           <div style="display:flex;gap:12px;flex-wrap:wrap">
             <button class="btn-accent" onclick="showPage('documents')">⬆ Upload Documents</button>
+            <button class="btn-accent" style="background:var(--success)" onclick="showPage('symptoms')">🩺 Symptom Checker</button>
             <button class="btn-secondary" onclick="showPage('summary')">📋 View Summary</button>
             <button class="btn-secondary" onclick="showPage('qa')">💬 Ask AI Assistant</button>
           </div>
@@ -205,13 +247,31 @@
         <!-- Tab: Overview Summary -->
         <div class="tab-content active" data-tab-content="summary" data-tab-id="overview">
           <div class="card">
-            <h2>📄 AI Medical Summary
-              <span id="summary-generated-at" style="font-size:11px;font-weight:400;color:var(--text-muted);margin-left:auto"></span>
-            </h2>
-            <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-              <button class="btn-accent" id="btn-generate-summary" onclick="generateSummary()">♻ Generate / Refresh Summary</button>
-              <button class="btn-secondary" id="btn-download-pdf" onclick="downloadPDF()">⬇ Download PDF Report</button>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+              <div>
+                <h2 id="summary-display-title" style="margin-bottom:4px">📄 Comprehensive Medical Assessment</h2>
+                <div style="display:flex;gap:8px;align-items:center">
+                  <span id="summary-type-badge" class="badge-pill badge-primary">Comprehensive Assessment</span>
+                  <span id="summary-generated-at" style="font-size:12px;color:var(--text-muted)"></span>
+                </div>
+              </div>
+              <div style="display:flex;gap:10px;flex-wrap:wrap">
+                <button class="btn-accent" id="btn-generate-summary" onclick="generateSummary()">♻ Generate / Refresh</button>
+                <button class="btn-secondary" id="btn-download-pdf" onclick="downloadPDF()">⬇ Download PDF Report</button>
+              </div>
             </div>
+
+            <!-- Summary Type Selector -->
+            <div class="summary-type-bar" style="margin-bottom:16px;background:var(--surface-2);padding:10px 14px;border-radius:var(--radius);border:1px solid var(--border)">
+              <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:6px">Select Summary Type &amp; Focus:</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button type="button" class="pill-btn active" data-sumtype="comprehensive" onclick="selectSummaryType('comprehensive')">Comprehensive Assessment</button>
+                <button type="button" class="pill-btn" data-sumtype="executive" onclick="selectSummaryType('executive')">Executive Overview</button>
+                <button type="button" class="pill-btn" data-sumtype="medications" onclick="selectSummaryType('medications')">Medication Review</button>
+                <button type="button" class="pill-btn" data-sumtype="diagnostics" onclick="selectSummaryType('diagnostics')">Lab &amp; Diagnostic Trends</button>
+              </div>
+            </div>
+
             <div id="summary-content" class="summary-text">
               <div class="loading-overlay"><span class="loader loader-dark"></span> Loading…</div>
             </div>
@@ -276,6 +336,127 @@
 
       </div>
 
+      <!-- ======== PAGE: SYMPTOM CHECKER ======== -->
+      <div id="page-symptoms" class="page">
+        <div class="page-title">🩺 Symptom Checker &amp; Clinical Intake</div>
+
+        <div class="card">
+          <h2>Describe What You Are Experiencing</h2>
+          <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px">
+            Answer a few simple questions. The AI will evaluate your symptoms alongside your uploaded medical reports to identify the underlying problem and provide guidance.
+          </p>
+
+          <form id="symptom-form" onsubmit="submitSymptomForm(event)">
+            <!-- Question 1 -->
+            <div class="form-group">
+              <label for="sym-primary">1. What is your primary symptom or health complaint?</label>
+              <div class="chip-container" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+                <button type="button" class="chip-btn" onclick="setPrimaryChip(this, 'Throbbing headache')">Headache</button>
+                <button type="button" class="chip-btn" onclick="setPrimaryChip(this, 'Chest tightness or discomfort')">Chest tightness</button>
+                <button type="button" class="chip-btn" onclick="setPrimaryChip(this, 'Shortness of breath on exertion')">Shortness of breath</button>
+                <button type="button" class="chip-btn" onclick="setPrimaryChip(this, 'High fever and chills')">Fever &amp; chills</button>
+                <button type="button" class="chip-btn" onclick="setPrimaryChip(this, 'Abdominal pain or cramping')">Abdominal pain</button>
+                <button type="button" class="chip-btn" onclick="setPrimaryChip(this, 'Extreme exhaustion & fatigue')">Fatigue</button>
+                <button type="button" class="chip-btn" onclick="setPrimaryChip(this, 'Dizziness and lightheadedness')">Dizziness</button>
+                <button type="button" class="chip-btn" onclick="setPrimaryChip(this, 'Persistent dry cough')">Cough</button>
+                <button type="button" class="chip-btn" onclick="setPrimaryChip(this, 'Joint stiffness and pain')">Joint pain</button>
+              </div>
+              <input type="text" id="sym-primary" placeholder="e.g. Throbbing pain in temples, chest tightness when walking, sharp stomach pain..." required />
+            </div>
+
+            <!-- Question 2 -->
+            <div class="form-group">
+              <label for="sym-duration">2. How long has this been happening?</label>
+              <select id="sym-duration" style="width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:14px;background:var(--bg)">
+                <option value="Just started today (acute onset)">Just started today (&lt; 24 hours)</option>
+                <option value="2 to 3 days">2 to 3 days</option>
+                <option value="About 1 week">About 1 week</option>
+                <option value="2 to 4 weeks">2 to 4 weeks</option>
+                <option value="More than a month (chronic)">More than a month (chronic)</option>
+              </select>
+            </div>
+
+            <!-- Question 3 -->
+            <div class="form-group">
+              <label>3. How severe is it right now? (1 = Very Mild, 10 = Unbearable): <span id="severity-label" style="font-weight:700;color:var(--accent)">5 - Moderate</span></label>
+              <div style="background:var(--bg);padding:14px;border-radius:var(--radius);border:1.5px solid var(--border)">
+                <input type="range" id="sym-severity" min="1" max="10" value="5" oninput="updateSeverityLabel(this.value)" style="width:100%;cursor:pointer" />
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:6px">
+                  <span>1 (Mild nuisance)</span>
+                  <span>4-6 (Noticeable / Moderate)</span>
+                  <span>7-9 (Severe / Disruptive)</span>
+                  <span>10 (Emergency level)</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Question 4 -->
+            <div class="form-group">
+              <label>4. Any other symptoms you are experiencing? (Check all that apply)</label>
+              <div class="chip-container" id="associated-symptoms-chips" style="display:flex;gap:6px;flex-wrap:wrap">
+                <label class="check-chip"><input type="checkbox" value="Nausea / Vomiting"> Nausea / Vomiting</label>
+                <label class="check-chip"><input type="checkbox" value="Fever / Sweating"> Fever / Sweating</label>
+                <label class="check-chip"><input type="checkbox" value="Dizziness / Vertigo"> Dizziness / Vertigo</label>
+                <label class="check-chip"><input type="checkbox" value="Shortness of breath"> Shortness of breath</label>
+                <label class="check-chip"><input type="checkbox" value="Body & muscle aches"> Body &amp; muscle aches</label>
+                <label class="check-chip"><input type="checkbox" value="Sore throat"> Sore throat</label>
+                <label class="check-chip"><input type="checkbox" value="Loss of appetite"> Loss of appetite</label>
+                <label class="check-chip"><input type="checkbox" value="Diarrhea / Digestive issues"> Diarrhea / Digestive issues</label>
+                <label class="check-chip"><input type="checkbox" value="Heart racing / Palpitations"> Palpitations</label>
+                <label class="check-chip"><input type="checkbox" value="Skin rash / Itching"> Skin rash</label>
+              </div>
+            </div>
+
+            <!-- Question 5 -->
+            <div class="form-group">
+              <label for="sym-notes">5. Any triggers, medications tried, or what makes it better/worse?</label>
+              <textarea id="sym-notes" placeholder="e.g. Worse in the evening, slight relief with cold compress, started after missed medication dose..." rows="2" style="width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:14px;background:var(--bg)"></textarea>
+            </div>
+
+            <button type="submit" class="btn-accent" id="btn-assess-symptoms" style="padding:12px 24px;font-size:15px;width:auto">
+              🩺 Analyze Symptoms with AI
+            </button>
+          </form>
+        </div>
+
+        <!-- Assessment Result Card -->
+        <div id="symptom-result-card" class="card" style="display:none;margin-top:20px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+            <h2>🩺 AI Symptom Assessment</h2>
+            <span id="assessment-urgency-badge" class="badge-pill"></span>
+          </div>
+
+          <div id="assessment-problem-box" class="problem-callout" style="background:#eff6ff;border-left:4px solid var(--accent);padding:14px 18px;border-radius:var(--radius);margin-bottom:16px">
+            <div style="font-size:12px;font-weight:700;color:var(--primary);text-transform:uppercase;margin-bottom:4px">Primary Problem Identified:</div>
+            <div id="assessment-probable-problem" style="font-size:15px;font-weight:600;color:#1e2a3b;line-height:1.5"></div>
+          </div>
+
+          <div style="margin-bottom:16px">
+            <h4 style="color:var(--primary);margin-bottom:6px;font-size:14px">Clinical Explanation:</h4>
+            <p id="assessment-explanation" style="font-size:14px;line-height:1.6;color:var(--text)"></p>
+          </div>
+
+          <div class="assessment-split-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+            <div class="analysis-panel" style="background:#fff1f2;border:1px solid #fecdd3;border-radius:var(--radius);padding:14px">
+              <h4 style="color:#be123c;margin-bottom:8px;font-size:13px;display:flex;align-items:center;gap:6px">🚨 Red Flag Warning Signs</h4>
+              <ul id="assessment-red-flags" style="padding-left:18px;font-size:13px;color:#881337;line-height:1.6"></ul>
+            </div>
+            <div class="analysis-panel" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:var(--radius);padding:14px">
+              <h4 style="color:#15803d;margin-bottom:8px;font-size:13px;display:flex;align-items:center;gap:6px">📋 Recommended Immediate Actions</h4>
+              <ul id="assessment-actions" style="padding-left:18px;font-size:13px;color:#14532d;line-height:1.6"></ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Past Symptom Assessments -->
+        <div class="card" style="margin-top:20px">
+          <h2>🕒 Previous Symptom Assessments</h2>
+          <div id="symptoms-history-list">
+            <p style="color:var(--text-muted);font-size:13px">No previous assessments.</p>
+          </div>
+        </div>
+      </div>
+
       <!-- ======== PAGE: Q&A ASSISTANT ======== -->
       <div id="page-qa" class="page">
         <div class="page-title">💬 Q&amp;A Assistant</div>
@@ -307,6 +488,19 @@
       </div>
 
     </main>
+  </div>
+</div>
+
+<!-- Document Extraction Facts Modal -->
+<div id="doc-facts-modal" class="modal-overlay" style="display:none">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3 id="modal-doc-title">Document Extraction Details</h3>
+      <button class="modal-close" onclick="closeDocFactsModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-doc-facts-content">
+      Loading...
+    </div>
   </div>
 </div>
 

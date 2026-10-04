@@ -1,0 +1,21 @@
+PATIENT: John Doe
+DATE OF BIRTH: 1985-03-15
+GENDER: Male
+REPORT DATE: 2024-01-10
+
+LABORATORY RESULTS:
+Hemoglobin: 10.2 g/dL (Reference: 13.5-17.5 g/dL)
+WBC Count: 7800 cells/mcL
+Blood Glucose (Fasting): 126 mg/dL
+Creatinine: 0.9 mg/dL
+
+VITAL SIGNS:
+Blood Pressure: 138/88 mmHg
+Heart Rate: 78 bpm
+Temperature: 98.6 F
+
+DIAGNOSIS: Type 2 Diabetes Mellitus (E11.9)
+MEDICATION: Metformin 500mg twice daily
+
+DOCTOR: Dr. Priya Sharma, Endocrinologist
+FACILITY: City Medical Center

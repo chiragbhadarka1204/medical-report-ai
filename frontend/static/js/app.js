@@ -84,6 +84,7 @@ function showPage(pageId) {
   if (pageId === "dashboard") loadDashboard();
   if (pageId === "documents") loadDocuments();
   if (pageId === "summary") loadSummaryPage();
+  if (pageId === "symptoms") loadSymptomsHistory();
   if (pageId === "qa") loadQAHistory();
 }
 
@@ -199,7 +200,34 @@ function showApp() {
   document.getElementById("user-initials").textContent = initials;
   document.getElementById("user-email-display").textContent = email;
 
+  loadEngineStatus();
   showPage("dashboard");
+}
+
+async function loadEngineStatus() {
+  try {
+    const r = await API.get("/system/status");
+    if (!r.ok) return;
+    const data = await r.json();
+    const headerBadge = document.getElementById("api-engine-header-badge");
+    if (headerBadge) {
+      const userScheme = data.user_provided_api?.scheme ? ` + User API (${data.user_provided_api.scheme})` : '';
+      headerBadge.textContent = `⚡ ${data.configured_engine} (${data.model})${userScheme}`;
+      headerBadge.title = `Primary Engine: ${data.configured_engine} (${data.model})\nUser API: ${data.user_provided_api?.client_id || 'Active'} (${data.user_provided_api?.scheme})\nMode: ${data.active_mode}\n${data.description || ''}`;
+    }
+    const profBadge = document.getElementById("extraction-engine-badge");
+    if (profBadge) {
+      profBadge.textContent = `${data.configured_engine} + User API (${data.user_provided_api?.scheme || 'k2'})`;
+      profBadge.title = data.active_mode;
+    }
+    const userApiEl = document.getElementById("prof-user-api");
+    if (userApiEl && data.user_provided_api) {
+      userApiEl.textContent = `🟢 ${data.user_provided_api.scheme}:${data.user_provided_api.client_id.slice(0, 8)}... (Active)`;
+      userApiEl.title = `Full Client ID: ${data.user_provided_api.client_id}\nRaw Key: ${data.user_provided_api.raw_key}`;
+    }
+  } catch (e) {
+    // ignore
+  }
 }
 
 async function doLogout() {
@@ -212,31 +240,67 @@ async function doLogout() {
 }
 
 // ============================================================
+// CLIENT CACHE (Fast navigation & performance)
+// ============================================================
+const _cache = {
+  docs: null,
+  patientData: null,
+  summariesByType: {},
+  symptomsHistory: null,
+};
+
+// ============================================================
 // DASHBOARD
 // ============================================================
-async function loadDashboard() {
+async function loadDashboard(forceRefresh = false) {
+  // Instant render from cache if available
+  if (!forceRefresh && _cache.docs && _cache.patientData) {
+    renderDashboardStats(_cache.docs, _cache.patientData);
+  }
+
   try {
     const [docsR, patR] = await Promise.all([
       API.get("/documents/"),
       API.get("/summary/patient-data"),
     ]);
-    const docs = docsR.ok ? (await docsR.json()).documents : [];
-    const pat = patR.ok ? await patR.json() : {};
+    const docs = docsR.ok ? (await docsR.json()).documents : (_cache.docs || []);
+    const pat = patR.ok ? await patR.json() : (_cache.patientData || {});
 
-    document.getElementById("stat-docs").textContent = docs.length;
-    document.getElementById("stat-labs").textContent = (pat.lab_results || []).length;
-    document.getElementById("stat-meds").textContent = (pat.medications || []).length;
-    document.getElementById("stat-diags").textContent = (pat.diagnoses || []).length;
-
-    // Recent documents
-    const recentList = document.getElementById("recent-docs-list");
-    if (docs.length === 0) {
-      recentList.innerHTML = `<div class="empty-state"><div class="empty-icon">📂</div><h3>No documents yet</h3><p>Upload your first medical document to get started.</p></div>`;
-    } else {
-      recentList.innerHTML = docs.slice(0, 4).map(docHtml).join("");
-    }
+    _cache.docs = docs;
+    _cache.patientData = pat;
+    renderDashboardStats(docs, pat);
   } catch (e) {
     console.error("Dashboard load error:", e);
+  }
+}
+
+function renderDashboardStats(docs, pat) {
+  document.getElementById("stat-docs").textContent = docs.length;
+  document.getElementById("stat-labs").textContent = (pat.lab_results || []).length;
+  document.getElementById("stat-meds").textContent = (pat.medications || []).length;
+  document.getElementById("stat-diags").textContent = (pat.diagnoses || []).length;
+
+  // Extracted Patient Profile Card
+  const profileCard = document.getElementById("patient-profile-card");
+  if (profileCard) {
+    const prof = pat.profile || {};
+    if (prof.full_name || prof.age || prof.gender || prof.date_of_birth) {
+      profileCard.style.display = "block";
+      document.getElementById("prof-name").textContent = prof.full_name || "Not recorded";
+      document.getElementById("prof-age").textContent = prof.age || "Not recorded";
+      document.getElementById("prof-gender").textContent = prof.gender || "Not recorded";
+      document.getElementById("prof-dob").textContent = prof.date_of_birth || (prof.age ? "Not specified in report" : "Not recorded");
+    } else {
+      profileCard.style.display = "none";
+    }
+  }
+
+  // Recent documents
+  const recentList = document.getElementById("recent-docs-list");
+  if (docs.length === 0) {
+    recentList.innerHTML = `<div class="empty-state"><div class="empty-icon">📂</div><h3>No documents yet</h3><p>Upload your first medical document to get started.</p></div>`;
+  } else {
+    recentList.innerHTML = docs.slice(0, 4).map(docHtml).join("");
   }
 }
 
@@ -267,25 +331,135 @@ function docHtml(doc) {
         <div class="doc-meta">${size}${size && date ? " · " : ""}${date}</div>
       </div>
       ${badge}
+      <button class="btn-secondary" style="font-size:12px;padding:6px 12px;margin-right:6px" onclick="viewDocFacts('${doc.id}')">🔍 View Extracted Data</button>
       <button class="btn-danger" onclick="deleteDocument('${doc.id}')">Delete</button>
     </li>`;
 }
 
-async function loadDocuments() {
+async function loadDocuments(forceRefresh = false) {
   const listEl = document.getElementById("docs-list");
-  listEl.innerHTML = `<div class="loading-overlay"><span class="loader loader-dark"></span> Loading documents…</div>`;
+
+  if (!forceRefresh && _cache.docs) {
+    renderDocumentsList(_cache.docs);
+  } else {
+    listEl.innerHTML = `<div class="loading-overlay"><span class="loader loader-dark"></span> Loading documents…</div>`;
+  }
+
   try {
     const r = await API.get("/documents/");
     if (!r.ok) throw new Error("Failed to load");
     const { documents } = await r.json();
-    if (documents.length === 0) {
-      listEl.innerHTML = `<div class="empty-state"><div class="empty-icon">📂</div><h3>No documents yet</h3><p>Upload your medical documents above.</p></div>`;
-    } else {
-      listEl.innerHTML = `<ul class="doc-list">${documents.map(docHtml).join("")}</ul>`;
-    }
+    _cache.docs = documents;
+    renderDocumentsList(documents);
   } catch (e) {
-    listEl.innerHTML = `<div class="alert alert-error">Failed to load documents.</div>`;
+    if (!_cache.docs) {
+      listEl.innerHTML = `<div class="alert alert-error">Failed to load documents.</div>`;
+    }
   }
+}
+
+function renderDocumentsList(documents) {
+  const listEl = document.getElementById("docs-list");
+  if (documents.length === 0) {
+    listEl.innerHTML = `<div class="empty-state"><div class="empty-icon">📂</div><h3>No documents yet</h3><p>Upload your medical documents above.</p></div>`;
+  } else {
+    listEl.innerHTML = `<ul class="doc-list">${documents.map(docHtml).join("")}</ul>`;
+  }
+}
+
+async function viewDocFacts(docId) {
+  const modal = document.getElementById("doc-facts-modal");
+  const titleEl = document.getElementById("modal-doc-title");
+  const contentEl = document.getElementById("modal-doc-facts-content");
+
+  modal.style.display = "flex";
+  contentEl.innerHTML = `<div class="loading-overlay"><span class="loader loader-dark"></span> Loading extracted details…</div>`;
+
+  try {
+    const r = await API.get(`/documents/${docId}/facts`);
+    if (!r.ok) throw new Error("Failed to load");
+    const { document: doc, facts } = await r.json();
+
+    titleEl.textContent = `📋 Extracted Facts — ${doc.original_filename}`;
+
+    if (!facts || facts.length === 0) {
+      contentEl.innerHTML = `
+        <div class="empty-state">
+          <p>No structured parameters were detected in this document.</p>
+        </div>`;
+      return;
+    }
+
+    // Group facts by category
+    const byCategory = {};
+    for (const f of facts) {
+      const cat = f.category || "other";
+      if (!byCategory[cat]) byCategory[cat] = [];
+      byCategory[cat].push(f);
+    }
+
+    const prof = _cache.patientData?.profile || {};
+    let html = `
+      <div style="margin-bottom:14px;padding:12px 16px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;margin-bottom:8px">
+          <div><strong>Document:</strong> ${escHtml(doc.original_filename)}</div>
+          <div><strong>Uploaded:</strong> ${new Date(doc.uploaded_at).toLocaleString()}</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;padding-top:8px;border-top:1px dashed var(--border)">
+          <div>👤 <strong>Patient:</strong> ${escHtml(prof.full_name || 'Not recorded')}</div>
+          <div>🎂 <strong>Age:</strong> ${escHtml(prof.age || 'Not recorded')}</div>
+          <div>⚧ <strong>Gender:</strong> ${escHtml(prof.gender || 'Not recorded')}</div>
+          <div>📅 <strong>DOB:</strong> ${escHtml(prof.date_of_birth || 'Not recorded')}</div>
+        </div>
+      </div>`;
+
+    for (const [cat, items] of Object.entries(byCategory)) {
+      const catTitles = {
+        lab_result: "🧪 Laboratory Results",
+        vital_sign: "💓 Vital Signs",
+        diagnosis: "🩺 Diagnoses & Impressions",
+        medication: "💊 Medications",
+        allergy: "⚠️ Allergies",
+        symptom: "🤒 Symptoms",
+      };
+
+      html += `<h4 style="color:var(--primary);margin:16px 0 8px;font-size:14px">${catTitles[cat] || cat}</h4>`;
+      html += `
+        <table class="data-table" style="margin-bottom:14px">
+          <thead>
+            <tr>
+              <th>Parameter / Name</th>
+              <th>Value</th>
+              <th>Unit</th>
+              <th>Reference Range</th>
+              <th>Status / Flag</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map(it => {
+              const flagClass = it.flag ? `flag-${it.flag}` : '';
+              const flagBadge = it.flag ? `<span class="flag-badge ${flagClass}">${escHtml(it.flag)}</span>` : (it.status || 'found');
+              return `
+                <tr>
+                  <td><strong>${escHtml(it.field_name)}</strong></td>
+                  <td>${escHtml(it.field_value || '—')}</td>
+                  <td>${escHtml(it.unit || '—')}</td>
+                  <td>${escHtml(it.reference_range || '—')}</td>
+                  <td>${flagBadge}</td>
+                </tr>`;
+            }).join("")}
+          </tbody>
+        </table>`;
+    }
+
+    contentEl.innerHTML = html;
+  } catch (err) {
+    contentEl.innerHTML = `<div class="alert alert-error">Failed to load extracted facts for this document.</div>`;
+  }
+}
+
+function closeDocFactsModal() {
+  document.getElementById("doc-facts-modal").style.display = "none";
 }
 
 async function deleteDocument(id) {
@@ -323,13 +497,14 @@ async function handleFiles(files) {
   const container = document.getElementById("upload-progress-container");
   container.innerHTML = "";
 
-  for (const file of files) {
+  // Concurrently process files for maximum speed (Requirement 6)
+  const uploadPromises = Array.from(files).map(async (file) => {
     const itemId = `up-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     container.insertAdjacentHTML("beforeend", `
       <div class="upload-progress-item" id="${itemId}">
         <div class="up-filename">${escHtml(file.name)}</div>
-        <div class="progress-bar-wrap"><div class="progress-bar" style="width:30%"></div></div>
-        <div class="up-status">Uploading…</div>
+        <div class="progress-bar-wrap"><div class="progress-bar" style="width:40%"></div></div>
+        <div class="up-status">Uploading & extracting…</div>
       </div>`);
 
     try {
@@ -341,51 +516,113 @@ async function handleFiles(files) {
       const item = document.getElementById(itemId);
 
       if (r.ok) {
-        item.querySelector(".progress-bar").style.width = "100%";
-        item.querySelector(".progress-bar").style.background = "var(--success)";
-        item.querySelector(".up-status").textContent = "✓ Extracted successfully";
-        item.querySelector(".up-status").style.color = "var(--success)";
+        if (item) {
+          item.querySelector(".progress-bar").style.width = "100%";
+          item.querySelector(".progress-bar").style.background = "var(--success)";
+          item.querySelector(".up-status").textContent = "✓ Extracted successfully";
+          item.querySelector(".up-status").style.color = "var(--success)";
+        }
         showToast(`${file.name} — extracted successfully.`, "success");
+        return true;
       } else {
-        item.querySelector(".progress-bar").style.background = "var(--error)";
-        item.querySelector(".up-status").textContent = `✗ ${data.error || "Upload failed"}`;
-        item.querySelector(".up-status").style.color = "var(--error)";
+        if (item) {
+          item.querySelector(".progress-bar").style.background = "var(--error)";
+          item.querySelector(".up-status").textContent = `✗ ${data.error || "Upload failed"}`;
+          item.querySelector(".up-status").style.color = "var(--error)";
+        }
         showToast(`${file.name} — ${data.error || "Upload failed"}`, "error");
+        return false;
       }
     } catch (err) {
       const item = document.getElementById(itemId);
-      item.querySelector(".up-status").textContent = `✗ Network error`;
-      item.querySelector(".up-status").style.color = "var(--error)";
+      if (item) {
+        item.querySelector(".up-status").textContent = `✗ Network error`;
+        item.querySelector(".up-status").style.color = "var(--error)";
+      }
+      return false;
     }
-  }
+  });
 
-  // Refresh document list
-  setTimeout(loadDocuments, 500);
+  await Promise.all(uploadPromises);
+
+  // Invalidate cache and refresh documents & dashboard in parallel
+  _cache.docs = null;
+  _cache.patientData = null;
+  _cache.summariesByType = {};
+  await Promise.all([loadDocuments(true), loadDashboard(true)]);
 }
 
 // ============================================================
 // SUMMARY & ANALYSIS
 // ============================================================
-async function loadSummaryPage() {
-  await Promise.all([loadLatestSummary(), loadPatientDataTables()]);
+let _currentSummaryType = 'comprehensive';
+
+function renderMarkdown(md) {
+  if (!md) return '';
+  let html = escHtml(md);
+  // Headers
+  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+  // Bold & Italic
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  // List items
+  html = html.replace(/^\s*[-•]\s+(.*$)/gim, '<li>$1</li>');
+  // Horizontal rule
+  html = html.replace(/^---$/gim, '<hr style="border:none;border-top:1px solid var(--border);margin:14px 0" />');
+  // Line breaks
+  html = html.replace(/\n\n/g, '<br/><br/>');
+  return `<div class="formatted-summary">${html}</div>`;
 }
 
-async function loadLatestSummary() {
+function selectSummaryType(type) {
+  _currentSummaryType = type;
+  document.querySelectorAll('[data-sumtype]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.sumtype === type);
+  });
+  loadLatestSummary(type);
+}
+
+async function loadSummaryPage() {
+  await Promise.all([loadLatestSummary(_currentSummaryType), loadPatientDataTables()]);
+}
+
+async function loadLatestSummary(type = _currentSummaryType) {
   const summaryEl = document.getElementById("summary-content");
   const genEl = document.getElementById("summary-generated-at");
-  summaryEl.innerHTML = `<div class="loading-overlay"><span class="loader loader-dark"></span> Loading…</div>`;
+  const titleEl = document.getElementById("summary-display-title");
+  const badgeEl = document.getElementById("summary-type-badge");
+
+  // Instant render from cache if available
+  if (_cache.summariesByType[type]) {
+    const cached = _cache.summariesByType[type];
+    if (titleEl) titleEl.textContent = `📄 ${cached.title || 'Medical Summary'}`;
+    if (badgeEl) badgeEl.textContent = cached.summary_type || type;
+    summaryEl.innerHTML = renderMarkdown(cached.summary);
+    if (cached.generated_at && genEl) genEl.textContent = `Generated: ${new Date(cached.generated_at).toLocaleString()}`;
+    return;
+  }
+
+  summaryEl.innerHTML = `<div class="loading-overlay"><span class="loader loader-dark"></span> Loading ${type} summary…</div>`;
 
   try {
-    const r = await API.get("/summary/latest");
+    const r = await API.get(`/summary/latest?type=${type}`);
     if (!r.ok) throw new Error();
     const data = await r.json();
 
     if (data.summary) {
-      summaryEl.textContent = data.summary;
-      if (data.generated_at) genEl.textContent = `Generated: ${new Date(data.generated_at).toLocaleString()}`;
+      _cache.summariesByType[type] = data;
+      if (titleEl) titleEl.textContent = `📄 ${data.title || 'Medical Summary'}`;
+      if (badgeEl) badgeEl.textContent = data.summary_type || type;
+      summaryEl.innerHTML = renderMarkdown(data.summary);
+      if (data.generated_at && genEl) genEl.textContent = `Generated: ${new Date(data.generated_at).toLocaleString()}`;
+    } else if (data.patient_data?.documents?.length > 0) {
+      // Auto-generate initial summary immediately so user doesn't wait
+      generateSummary();
     } else {
-      summaryEl.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div><h3>No summary yet</h3><p>Click "Generate Summary" to create your medical summary.</p></div>`;
-      genEl.textContent = "";
+      summaryEl.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div><h3>No ${type} summary yet</h3><p>Upload medical reports in Documents tab to generate summaries.</p></div>`;
+      if (genEl) genEl.textContent = "";
     }
   } catch (e) {
     summaryEl.innerHTML = `<div class="alert alert-error">Failed to load summary.</div>`;
@@ -395,26 +632,32 @@ async function loadLatestSummary() {
 async function generateSummary() {
   const btn = document.getElementById("btn-generate-summary");
   const summaryEl = document.getElementById("summary-content");
+  const titleEl = document.getElementById("summary-display-title");
+  const badgeEl = document.getElementById("summary-type-badge");
+
   btn.disabled = true;
   btn.innerHTML = '<span class="loader"></span> Generating…';
-  summaryEl.innerHTML = `<div class="loading-overlay"><span class="loader loader-dark"></span> AI is generating your medical summary…</div>`;
+  summaryEl.innerHTML = `<div class="loading-overlay"><span class="loader loader-dark"></span> AI is analyzing and generating your ${_currentSummaryType} summary…</div>`;
 
   try {
-    const r = await API.post("/summary/generate", {});
+    const r = await API.post("/summary/generate", { summary_type: _currentSummaryType });
     const data = await r.json();
     if (!r.ok) {
       summaryEl.innerHTML = `<div class="alert alert-error">${data.error || "Generation failed."}</div>`;
       showToast(data.error || "Generation failed.", "error");
       return;
     }
-    summaryEl.textContent = data.summary;
+    _cache.summariesByType[_currentSummaryType] = data;
+    if (titleEl) titleEl.textContent = `📄 ${data.title || 'Medical Summary'}`;
+    if (badgeEl) badgeEl.textContent = data.summary_type || _currentSummaryType;
+    summaryEl.innerHTML = renderMarkdown(data.summary);
     document.getElementById("summary-generated-at").textContent = `Generated: ${new Date().toLocaleString()}`;
-    showToast("Summary generated successfully.", "success");
+    showToast(`${data.title || 'Summary'} generated successfully.`, "success");
   } catch (e) {
     summaryEl.innerHTML = `<div class="alert alert-error">Network error.</div>`;
   } finally {
     btn.disabled = false;
-    btn.innerHTML = "♻ Regenerate";
+    btn.innerHTML = "♻ Generate / Refresh";
   }
 }
 
@@ -485,62 +728,78 @@ function renderAnalysis(analysis) {
     </div>`;
 }
 
-async function loadPatientDataTables() {
+async function loadPatientDataTables(forceRefresh = false) {
+  if (!forceRefresh && _cache.patientData) {
+    renderPatientTables(_cache.patientData);
+  }
+
   try {
     const r = await API.get("/summary/patient-data");
     if (!r.ok) return;
     const data = await r.json();
+    _cache.patientData = data;
+    renderPatientTables(data);
+  } catch (e) {
+    console.error("Patient data error:", e);
+  }
+}
 
-    // Lab results table
-    const labEl = document.getElementById("lab-table-body");
-    if (data.lab_results?.length) {
-      labEl.innerHTML = data.lab_results.map(l => `
+function renderPatientTables(data) {
+  // Lab results table
+  const labEl = document.getElementById("lab-table-body");
+  if (data.lab_results?.length) {
+    labEl.innerHTML = data.lab_results.map(l => {
+      const flagClass = l.flag ? `flag-${l.flag}` : '';
+      const flagBadge = l.flag ? `<span class="flag-badge ${flagClass}">${escHtml(l.flag)}</span>` : '';
+      return `
         <tr>
           <td>${escHtml(l.field_name || "—")}</td>
-          <td><strong>${escHtml(l.field_value || "—")}</strong></td>
+          <td><strong>${escHtml(l.field_value || "—")}</strong> ${flagBadge}</td>
           <td>${escHtml(l.unit || "—")}</td>
           <td>${escHtml(l.reference_range || "—")}</td>
           <td>${escHtml(l.report_date || "—")}</td>
-        </tr>`).join("");
-    } else {
-      labEl.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">No lab results found.</td></tr>`;
-    }
+        </tr>`;
+    }).join("");
+  } else {
+    labEl.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">No lab results found.</td></tr>`;
+  }
 
-    // Vitals
-    const vitalsEl = document.getElementById("vitals-table-body");
-    if (data.vital_signs?.length) {
-      vitalsEl.innerHTML = data.vital_signs.map(v => `
+  // Vitals
+  const vitalsEl = document.getElementById("vitals-table-body");
+  if (data.vital_signs?.length) {
+    vitalsEl.innerHTML = data.vital_signs.map(v => {
+      const flagClass = v.flag ? `flag-${v.flag}` : '';
+      const flagBadge = v.flag ? `<span class="flag-badge ${flagClass}">${escHtml(v.flag)}</span>` : '';
+      return `
         <tr>
           <td>${escHtml(v.field_name || "—")}</td>
-          <td><strong>${escHtml(v.field_value || "—")}</strong></td>
+          <td><strong>${escHtml(v.field_value || "—")}</strong> ${flagBadge}</td>
           <td>${escHtml(v.unit || "—")}</td>
           <td>${escHtml(v.report_date || "—")}</td>
-        </tr>`).join("");
-    } else {
-      vitalsEl.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">No vital signs found.</td></tr>`;
-    }
+        </tr>`;
+    }).join("");
+  } else {
+    vitalsEl.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">No vital signs found.</td></tr>`;
+  }
 
-    // Diagnoses
-    const diagEl = document.getElementById("diagnoses-list");
-    if (data.diagnoses?.length) {
-      diagEl.innerHTML = data.diagnoses.map(d =>
-        `<div class="missing-tag" style="background:#f0fdf4;border-color:#86efac;color:#166534;">🩺 ${escHtml(d.field_name || "")}</div>`
-      ).join("");
-    } else {
-      diagEl.innerHTML = `<span style="color:var(--text-muted);font-size:13px">No diagnoses recorded.</span>`;
-    }
+  // Diagnoses
+  const diagEl = document.getElementById("diagnoses-list");
+  if (data.diagnoses?.length) {
+    diagEl.innerHTML = data.diagnoses.map(d =>
+      `<div class="missing-tag" style="background:#f0fdf4;border-color:#86efac;color:#166534;">🩺 ${escHtml(d.field_name || "")}</div>`
+    ).join("");
+  } else {
+    diagEl.innerHTML = `<span style="color:var(--text-muted);font-size:13px">No diagnoses recorded.</span>`;
+  }
 
-    // Allergies
-    const allergyEl = document.getElementById("allergies-list");
-    if (data.allergies?.length) {
-      allergyEl.innerHTML = data.allergies.map(a =>
-        `<span class="missing-tag" style="background:#fff7ed;border-color:#fdba74;color:#c2410c;">⚠ ${escHtml(a.field_name || "")}</span>`
-      ).join("");
-    } else {
-      allergyEl.innerHTML = `<span style="color:var(--text-muted);font-size:13px">No allergies recorded.</span>`;
-    }
-  } catch (e) {
-    console.error("Patient data error:", e);
+  // Allergies
+  const allergyEl = document.getElementById("allergies-list");
+  if (data.allergies?.length) {
+    allergyEl.innerHTML = data.allergies.map(a =>
+      `<span class="missing-tag" style="background:#fff7ed;border-color:#fdba74;color:#c2410c;">⚠️ ${escHtml(a.field_name || "")}</span>`
+    ).join("");
+  } else {
+    allergyEl.innerHTML = `<span style="color:var(--text-muted);font-size:13px">No allergies recorded.</span>`;
   }
 }
 
@@ -583,6 +842,179 @@ async function downloadPDF() {
     btn.disabled = false;
     btn.innerHTML = "⬇ Download PDF Report";
   }
+}
+
+// ============================================================
+// SYMPTOM CHECKER (Requirement 5 & 4)
+// ============================================================
+
+function setPrimaryChip(btn, text) {
+  document.querySelectorAll(".chip-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  const input = document.getElementById("sym-primary");
+  if (input) {
+    input.value = text;
+    input.focus();
+  }
+}
+
+function updateSeverityLabel(val) {
+  const label = document.getElementById("severity-label");
+  const num = parseInt(val, 10);
+  let text = "Moderate";
+  let color = "var(--accent)";
+
+  if (num <= 3) {
+    text = `${num} - Mild`;
+    color = "var(--success)";
+  } else if (num <= 6) {
+    text = `${num} - Moderate`;
+    color = "var(--warning)";
+  } else if (num <= 8) {
+    text = `${num} - Severe`;
+    color = "#dc2626";
+  } else {
+    text = `${num} - Critical / Emergency`;
+    color = "#991b1b";
+  }
+
+  label.textContent = text;
+  label.style.color = color;
+}
+
+async function submitSymptomForm(e) {
+  e.preventDefault();
+  const btn = document.getElementById("btn-assess-symptoms");
+  const primary = document.getElementById("sym-primary").value.trim();
+  const duration = document.getElementById("sym-duration").value;
+  const severity = document.getElementById("sym-severity").value;
+  const notes = document.getElementById("sym-notes").value.trim();
+
+  // Selected checkboxes
+  const associated = [];
+  document.querySelectorAll("#associated-symptoms-chips input:checked").forEach(cb => {
+    associated.push(cb.value);
+  });
+
+  if (!primary) {
+    showToast("Please enter your primary symptom.", "error");
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loader"></span> Evaluating symptoms with AI…';
+
+  try {
+    const r = await API.post("/symptoms/assess", {
+      primary_symptom: primary,
+      duration,
+      severity,
+      associated_symptoms: associated,
+      notes,
+    });
+
+    const data = await r.json();
+    if (!r.ok) {
+      showToast(data.error || "Symptom assessment failed.", "error");
+      return;
+    }
+
+    renderSymptomResult(data.report);
+    loadSymptomsHistory(true);
+    showToast("Symptom evaluation complete.", "success");
+  } catch (err) {
+    showToast("Network error while evaluating symptoms.", "error");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = "🩺 Analyze Symptoms with AI";
+  }
+}
+
+function renderSymptomResult(report) {
+  const card = document.getElementById("symptom-result-card");
+  const badge = document.getElementById("assessment-urgency-badge");
+  const problemEl = document.getElementById("assessment-probable-problem");
+  const explanationEl = document.getElementById("assessment-explanation");
+  const redFlagsEl = document.getElementById("assessment-red-flags");
+  const actionsEl = document.getElementById("assessment-actions");
+
+  const assessment = report.assessment || {};
+
+  // Urgency badge styling
+  const urgency = assessment.urgency || "Moderate";
+  badge.textContent = urgency;
+  badge.className = "badge-pill";
+  if (urgency.toLowerCase().includes("mild")) badge.classList.add("badge-success");
+  else if (urgency.toLowerCase().includes("moderate")) badge.classList.add("badge-warning");
+  else badge.classList.add("badge-danger");
+
+  problemEl.textContent = assessment.probable_problem || "Analysis completed.";
+  explanationEl.textContent = assessment.explanation || "";
+
+  // Red flags
+  const redFlags = assessment.red_flags || [];
+  redFlagsEl.innerHTML = redFlags.length
+    ? redFlags.map(rf => `<li>${escHtml(rf)}</li>`).join("")
+    : "<li>No immediate life-threatening red flags identified.</li>";
+
+  // Actions
+  const actions = assessment.recommended_actions || [];
+  actionsEl.innerHTML = actions.length
+    ? actions.map(act => `<li>${escHtml(act)}</li>`).join("")
+    : "<li>Stay hydrated, rest, and consult a physician if symptoms do not improve.</li>";
+
+  card.style.display = "block";
+  card.scrollIntoView({ behavior: "smooth" });
+}
+
+async function loadSymptomsHistory(forceRefresh = false) {
+  const listEl = document.getElementById("symptoms-history-list");
+  if (!listEl) return;
+
+  if (!forceRefresh && _cache.symptomsHistory) {
+    renderSymptomsHistoryList(_cache.symptomsHistory);
+    return;
+  }
+
+  try {
+    const r = await API.get("/symptoms/history");
+    if (!r.ok) return;
+    const { reports } = await r.json();
+    _cache.symptomsHistory = reports;
+    renderSymptomsHistoryList(reports);
+  } catch (e) {
+    console.error("Symptoms history error:", e);
+  }
+}
+
+function renderSymptomsHistoryList(reports) {
+  const listEl = document.getElementById("symptoms-history-list");
+  if (!listEl) return;
+
+  if (!reports || reports.length === 0) {
+    listEl.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No previous assessments yet. Fill out the form above to check symptoms.</p>`;
+    return;
+  }
+
+  listEl.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:12px">
+      ${reports.map(rep => {
+        const date = new Date(rep.created_at).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+        return `
+          <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:14px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+              <strong style="color:var(--primary);font-size:15px">🩺 ${escHtml(rep.primary_symptom)}</strong>
+              <span style="font-size:12px;color:var(--text-muted)">${date}</span>
+            </div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">
+              Duration: <strong>${escHtml(rep.duration)}</strong> &nbsp;|&nbsp; Severity: <strong>${rep.severity}/10</strong>
+            </div>
+            <div style="font-size:13px;line-height:1.5;color:var(--text)">
+              ${escHtml(rep.assessment?.probable_problem || "")}
+            </div>
+          </div>`;
+      }).join("")}
+    </div>`;
 }
 
 // ============================================================

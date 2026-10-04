@@ -1,0 +1,5 @@
+{
+  "name": "Medical Report AI",
+  "description": "Secure medical document analysis & summarisation platform",
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

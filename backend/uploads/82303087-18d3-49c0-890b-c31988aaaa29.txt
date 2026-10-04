@@ -1,7 +1,0 @@
-PATIENT: Jane Smith
-DATE OF BIRTH: 1990-05-20
-GENDER: Female
-Blood Pressure: 120/80 mmHg
-Hemoglobin: 12.5 g/dL
-DIAGNOSIS: Hypertension
-MEDICATION: Amlodipine 5mg once daily
