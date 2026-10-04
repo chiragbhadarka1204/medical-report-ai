@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Medical Report AI</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+
+<!-- ===================== AUTH ROOT ===================== -->
+<div id="auth-root" class="auth-root">
+  <div class="auth-card">
+
+    <!-- SCREEN: LOGIN -->
+    <div id="screen-login">
+      <div class="auth-logo">
+        <div class="icon">🏥</div>
+        <h1>Medical Report AI</h1>
+        <p>Secure medical document analysis & summarisation</p>
+      </div>
+
+      <form onsubmit="doLogin(event)">
+        <div id="login-error" class="alert alert-error" style="display:none"></div>
+
+        <div class="form-group">
+          <label for="login-email">Email Address</label>
+          <input type="email" id="login-email" placeholder="you@example.com" required autocomplete="email" />
+        </div>
+
+        <div class="form-group">
+          <label for="login-phone">Phone Number</label>
+          <input type="tel" id="login-phone" placeholder="+1 555 000 0000" required autocomplete="tel" />
+        </div>
+
+        <button type="submit" class="btn-primary" id="btn-continue">Continue</button>
+      </form>
+    </div>
+
+    <!-- SCREEN: OTP VERIFICATION -->
+    <div id="screen-otp" style="display:none">
+      <div class="auth-logo">
+        <div class="icon">🔐</div>
+        <h1>Verify OTP</h1>
+        <p>Enter the 6-digit code sent to your phone/email</p>
+      </div>
+
+      <!-- Dev mode OTP hint -->
+      <div id="dev-otp-box" class="dev-otp-box" style="display:none">
+        <span>Development OTP</span>
+        <strong id="dev-otp-value">——</strong>
+        <span style="font-size:11px;color:#a16207">(dev mode — not sent via SMS)</span>
+      </div>
+
+      <form onsubmit="doVerifyOtp(event)">
+        <div id="otp-error" class="alert alert-error" style="display:none"></div>
+
+        <div class="otp-inputs">
+          <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" />
+          <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" />
+          <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" />
+          <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" />
+          <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" />
+          <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" />
+        </div>
+
+        <button type="submit" class="btn-primary" id="btn-verify">Verify OTP</button>
+      </form>
+
+      <p style="text-align:center;margin-top:14px;font-size:13px;color:var(--text-muted)">
+        <a href="#" onclick="document.getElementById('screen-otp').style.display='none'; document.getElementById('screen-login').style.display='block'; return false;">← Back to login</a>
+      </p>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===================== MAIN APP ===================== -->
+<div id="app">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-logo">
+      <span class="icon">🏥</span>
+      Medical Report AI
+    </div>
+    <div class="header-spacer"></div>
+    <div class="header-user">
+      <div class="user-avatar" id="user-initials">U</div>
+      <span id="user-email-display" style="font-size:12px;opacity:0.85"></span>
+      <button class="btn-logout" onclick="doLogout()">Logout</button>
+    </div>
+  </header>
+
+  <!-- Shell -->
+  <div class="shell">
+
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="sidebar-section">Navigation</div>
+      <ul class="sidebar-nav">
+        <li><a href="#" data-page="dashboard" class="active" onclick="showPage('dashboard');return false;">
+          <span class="nav-icon">🏠</span> Dashboard
+        </a></li>
+        <li><a href="#" data-page="documents" onclick="showPage('documents');return false;">
+          <span class="nav-icon">📂</span> Documents
+        </a></li>
+        <li><a href="#" data-page="summary" onclick="showPage('summary');return false;">
+          <span class="nav-icon">📋</span> Medical Summary
+        </a></li>
+        <li><a href="#" data-page="qa" onclick="showPage('qa');return false;">
+          <span class="nav-icon">💬</span> Q&amp;A Assistant
+        </a></li>
+      </ul>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+
+      <!-- ======== PAGE: DASHBOARD ======== -->
+      <div id="page-dashboard" class="page active">
+        <div class="page-title">🏠 Dashboard</div>
+
+        <!-- Stats -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">📂</div>
+            <div class="stat-value" id="stat-docs">—</div>
+            <div class="stat-label">Documents Uploaded</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🧪</div>
+            <div class="stat-value" id="stat-labs">—</div>
+            <div class="stat-label">Lab Results</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">💊</div>
+            <div class="stat-value" id="stat-meds">—</div>
+            <div class="stat-label">Medications</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🩺</div>
+            <div class="stat-value" id="stat-diags">—</div>
+            <div class="stat-label">Diagnoses</div>
+          </div>
+        </div>
+
+        <!-- Quick actions -->
+        <div class="card">
+          <h2>⚡ Quick Actions</h2>
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
+            <button class="btn-accent" onclick="showPage('documents')">⬆ Upload Documents</button>
+            <button class="btn-secondary" onclick="showPage('summary')">📋 View Summary</button>
+            <button class="btn-secondary" onclick="showPage('qa')">💬 Ask AI Assistant</button>
+          </div>
+        </div>
+
+        <!-- Recent documents -->
+        <div class="card">
+          <h2>📂 Recent Documents</h2>
+          <div id="recent-docs-list">
+            <div class="loading-overlay"><span class="loader loader-dark"></span> Loading…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ======== PAGE: DOCUMENTS ======== -->
+      <div id="page-documents" class="page">
+        <div class="page-title">📂 Documents</div>
+
+        <!-- Upload zone -->
+        <div class="card">
+          <h2>⬆ Upload Medical Documents</h2>
+          <div class="upload-zone" id="upload-zone">
+            <input type="file" id="file-input" multiple accept=".pdf,.png,.jpg,.jpeg,.gif,.tiff,.bmp,.txt,.doc,.docx" />
+            <div class="upload-icon">📁</div>
+            <h3>Drag &amp; drop files here, or click to browse</h3>
+            <p>Supported: PDF, Images (PNG/JPG/TIFF), TXT, DOC, DOCX &nbsp;·&nbsp; Max 50 MB per file</p>
+          </div>
+          <div id="upload-progress-container" style="margin-top:14px"></div>
+        </div>
+
+        <!-- Document list -->
+        <div class="card">
+          <h2>📋 Uploaded Documents</h2>
+          <div id="docs-list">
+            <div class="loading-overlay"><span class="loader loader-dark"></span> Loading…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ======== PAGE: MEDICAL SUMMARY ======== -->
+      <div id="page-summary" class="page">
+        <div class="page-title">📋 Medical Summary</div>
+
+        <!-- Tab bar -->
+        <div class="tab-bar">
+          <button class="tab-btn active" data-tab-group="summary" data-tab-id="overview" onclick="switchTab('summary','overview')">Overview Summary</button>
+          <button class="tab-btn" data-tab-group="summary" data-tab-id="labresults" onclick="switchTab('summary','labresults')">Lab Results</button>
+          <button class="tab-btn" data-tab-group="summary" data-tab-id="vitals" onclick="switchTab('summary','vitals')">Vital Signs</button>
+          <button class="tab-btn" data-tab-group="summary" data-tab-id="diagnoses" onclick="switchTab('summary','diagnoses')">Diagnoses &amp; Allergies</button>
+          <button class="tab-btn" data-tab-group="summary" data-tab-id="analysis" onclick="switchTab('summary','analysis')">Analysis</button>
+        </div>
+
+        <!-- Tab: Overview Summary -->
+        <div class="tab-content active" data-tab-content="summary" data-tab-id="overview">
+          <div class="card">
+            <h2>📄 AI Medical Summary
+              <span id="summary-generated-at" style="font-size:11px;font-weight:400;color:var(--text-muted);margin-left:auto"></span>
+            </h2>
+            <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+              <button class="btn-accent" id="btn-generate-summary" onclick="generateSummary()">♻ Generate / Refresh Summary</button>
+              <button class="btn-secondary" id="btn-download-pdf" onclick="downloadPDF()">⬇ Download PDF Report</button>
+            </div>
+            <div id="summary-content" class="summary-text">
+              <div class="loading-overlay"><span class="loader loader-dark"></span> Loading…</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: Lab Results -->
+        <div class="tab-content" data-tab-content="summary" data-tab-id="labresults">
+          <div class="card">
+            <h2>🧪 Laboratory Results</h2>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Test</th><th>Value</th><th>Unit</th><th>Reference Range</th><th>Date</th>
+                </tr>
+              </thead>
+              <tbody id="lab-table-body">
+                <tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tab: Vital Signs -->
+        <div class="tab-content" data-tab-content="summary" data-tab-id="vitals">
+          <div class="card">
+            <h2>💓 Vital Signs</h2>
+            <table class="data-table">
+              <thead>
+                <tr><th>Measurement</th><th>Value</th><th>Unit</th><th>Date</th></tr>
+              </thead>
+              <tbody id="vitals-table-body">
+                <tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted)">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tab: Diagnoses & Allergies -->
+        <div class="tab-content" data-tab-content="summary" data-tab-id="diagnoses">
+          <div class="card">
+            <h2>🩺 Recorded Diagnoses</h2>
+            <div id="diagnoses-list" style="padding:8px 0">Loading…</div>
+          </div>
+          <div class="card">
+            <h2>⚠ Allergies</h2>
+            <div id="allergies-list" style="padding:8px 0">Loading…</div>
+          </div>
+        </div>
+
+        <!-- Tab: Analysis -->
+        <div class="tab-content" data-tab-content="summary" data-tab-id="analysis">
+          <div class="card">
+            <h2>📊 Medical Analysis</h2>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">
+              Analyze all uploaded records for timeline, medication summary, notable changes, and missing information.
+            </p>
+            <button class="btn-accent" id="btn-run-analysis" onclick="runAnalysis()">▶ Run Analysis</button>
+          </div>
+          <div id="analysis-container"></div>
+        </div>
+
+      </div>
+
+      <!-- ======== PAGE: Q&A ASSISTANT ======== -->
+      <div id="page-qa" class="page">
+        <div class="page-title">💬 Q&amp;A Assistant</div>
+
+        <div class="card" style="margin-bottom:12px">
+          <p style="font-size:13px;color:var(--text-muted)">
+            Ask any question about your uploaded medical records. The AI answers strictly from your data — it will not guess or invent information.
+          </p>
+        </div>
+
+        <div class="chat-container">
+          <div id="chat-messages" class="chat-messages">
+            <div class="empty-state">
+              <div class="empty-icon">💬</div>
+              <h3>Ask anything about your medical records</h3>
+              <p>Type your question below. The AI will answer using only your uploaded documents.</p>
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
+            <button class="btn-secondary" style="font-size:12px;padding:5px 12px" onclick="clearQAHistory()">🗑 Clear History</button>
+          </div>
+
+          <form class="chat-input-row" onsubmit="sendQuestion(event)">
+            <textarea id="qa-input" placeholder="Type your question… (Enter to send, Shift+Enter for new line)" rows="1"></textarea>
+            <button type="submit" class="btn-accent" id="btn-ask">Send</button>
+          </form>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+</body>
+</html>
