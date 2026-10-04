@@ -19,7 +19,7 @@ import {
 } from './src/services/ai.js';
 import { generateSummaryPdf } from './src/services/pdf.js';
 
-dotenv.config();
+dotenv.config({ override: true });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

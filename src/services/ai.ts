@@ -1,7 +1,23 @@
 import { GoogleGenAI } from '@google/genai';
 
+const PLATFORM_DEFAULT_KEY = 'AIzaSyB-0bigh7NRSzgr-GNOWrMLvFd5U1Fw4Ms';
+
+export function getEffectiveGeminiApiKey(): string | null {
+  const envKey = process.env.GEMINI_API_KEY;
+  if (
+    envKey &&
+    envKey !== 'MY_GEMINI_API_KEY' &&
+    !envKey.startsWith('TODO') &&
+    !envKey.startsWith('YOUR_') &&
+    envKey.length > 15
+  ) {
+    return envKey;
+  }
+  return PLATFORM_DEFAULT_KEY;
+}
+
 function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = getEffectiveGeminiApiKey();
   if (!apiKey) return null;
   return new GoogleGenAI({
     apiKey,
@@ -28,11 +44,14 @@ export function getCurrentApiInfo(): {
   model: string;
   api_sdk: string;
   has_api_key: boolean;
+  gemini_api_key_masked: string;
   active_mode: string;
   description: string;
   user_provided_api: typeof USER_PROVIDED_API;
 } {
-  const hasKey = Boolean(process.env.GEMINI_API_KEY);
+  const apiKey = getEffectiveGeminiApiKey();
+  const hasKey = Boolean(apiKey);
+  const maskedKey = apiKey ? `${apiKey.slice(0, 10)}...${apiKey.slice(-4)}` : 'None';
   return {
     configured_engine: hasKey
       ? 'Google Gemini API'
@@ -40,6 +59,7 @@ export function getCurrentApiInfo(): {
     model: hasKey ? 'gemini-3.8-flash' : 'clinical-rule-based-v2',
     api_sdk: '@google/genai (Google GenAI SDK)',
     has_api_key: hasKey,
+    gemini_api_key_masked: maskedKey,
     active_mode: hasKey
       ? 'AI Hybrid (Gemini 3.8 Flash + Clinical Parser + User API)'
       : 'Clinical Medical Engine (Deterministic & Fast)',
@@ -49,13 +69,57 @@ export function getCurrentApiInfo(): {
   };
 }
 
-// Helper to run a promise with a timeout (default 5000ms for high responsiveness)
-async function withTimeout<T>(promise: Promise<T>, timeoutMs = 5000): Promise<T> {
+// Helper to run a promise with a timeout (default 15000ms for reliability)
+async function withTimeout<T>(promise: Promise<T>, timeoutMs = 15000): Promise<T> {
   let timer: NodeJS.Timeout;
   const timeoutPromise = new Promise<T>((_, reject) => {
     timer = setTimeout(() => reject(new Error('AI request timed out')), timeoutMs);
   });
   return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
+}
+
+// Resilient Gemini invoker with automatic transient failover (503 / 429)
+async function callGeminiWithFallback(
+  ai: GoogleGenAI,
+  request: {
+    contents: string;
+    config?: any;
+    model?: string;
+  },
+  timeoutMs = 15000
+): Promise<any> {
+  const primaryModel = request.model || 'gemini-3.8-flash';
+  const fallbackModel = 'gemini-3.1-flash-lite';
+
+  try {
+    return await withTimeout(
+      ai.models.generateContent({
+        model: primaryModel,
+        contents: request.contents,
+        ...(request.config ? { config: request.config } : {}),
+      }),
+      timeoutMs
+    );
+  } catch (err: any) {
+    const isTransient =
+      err?.status === 503 ||
+      err?.status === 429 ||
+      String(err?.message || '').includes('high demand') ||
+      String(err?.message || '').includes('UNAVAILABLE') ||
+      String(err?.message || '').includes('timed out');
+
+    if (isTransient) {
+      return await withTimeout(
+        ai.models.generateContent({
+          model: fallbackModel,
+          contents: request.contents,
+          ...(request.config ? { config: request.config } : {}),
+        }),
+        timeoutMs
+      );
+    }
+    throw err;
+  }
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -553,13 +617,13 @@ Return ONLY valid JSON matching this schema:
 Document:
 ${rawText.slice(0, 9000)}`;
 
-      const response = await withTimeout(
-        ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+      const response = await callGeminiWithFallback(
+        ai,
+        {
           contents: prompt,
           config: { responseMimeType: 'application/json' },
-        }),
-        4500
+        },
+        15000
       );
 
       const parsed = JSON.parse(response.text || '{}');
@@ -765,12 +829,12 @@ CRITICAL INSTRUCTIONS (MUST COMPLY):
 Patient Data:
 ${JSON.stringify(patientData, null, 2).slice(0, 9000)}`;
 
-      const response = await withTimeout(
-        ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+      const response = await callGeminiWithFallback(
+        ai,
+        {
           contents: prompt,
-        }),
-        5000
+        },
+        15000
       );
 
       if (response.text && response.text.trim()) {
@@ -872,13 +936,13 @@ Important: Highlight abnormal lab flags or elevated vitals in the changes sectio
 Patient Data:
 ${JSON.stringify(patientData, null, 2).slice(0, 8000)}`;
 
-      const response = await withTimeout(
-        ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+      const response = await callGeminiWithFallback(
+        ai,
+        {
           contents: prompt,
           config: { responseMimeType: 'application/json' },
-        }),
-        4500
+        },
+        15000
       );
       return JSON.parse(response.text || '{}');
     } catch (err) {
@@ -1207,12 +1271,12 @@ ${JSON.stringify(patientData, null, 2).slice(0, 7000)}
 User Question:
 ${trimmed}`;
 
-      const response = await withTimeout(
-        ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+      const response = await callGeminiWithFallback(
+        ai,
+        {
           contents: prompt,
-        }),
-        4500
+        },
+        15000
       );
 
       if (response.text && response.text.trim()) {
@@ -1275,13 +1339,13 @@ Return ONLY valid JSON matching:
   "recommended_actions": ["Specific immediate steps, comfort measures, monitoring actions, and questions for the physician"]
 }`;
 
-      const response = await withTimeout(
-        ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+      const response = await callGeminiWithFallback(
+        ai,
+        {
           contents: prompt,
           config: { responseMimeType: 'application/json' },
-        }),
-        4500
+        },
+        15000
       );
       return JSON.parse(response.text || '{}');
     } catch (err) {
